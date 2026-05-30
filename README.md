@@ -1,241 +1,681 @@
-# FM26 Artifact for "RustyDL: A Program Logic for Rust"
+# Proof-Carrying Source-Level Verification with Small-Kernel Certificate Checking
 
-## Introduction 
+This repository provides an artifact for **proof-carrying source-level verification**:
+a framework that separates *proof production* from *proof trust* for Rust
+program verification.
 
-This README is related to the [artifact](https://github.com/Drodt/fm26-artifact) for the  paper "RustyDL: A Program Logic for Rust" accepted to the _Formal Methods Symposium 2026._
+The key idea is simple:
 
-The paper describes a dynamic logic and a calculus for Rust, permitting the deductive verification of Rust programs. The artifact contains a number of examples from the paper as well as the [RustyKeY](https://github.com/Drodt/key/tree/rusty) tool, an implementation of the paper's calculus built on the [KeY system](https://www.key-project.org/).
+> A large verifier may discover a proof, but a small independent checker should
+> decide whether the proof evidence is trustworthy.
 
-RustyKeY's CLI is provided as a JAR file. For artifact evaluation, prefer the Docker image. If you want to install RustyKeY manually on your machine see the "Manual Installation" section below.
+Instead of treating the original verification engine as part of the trusted
+computing base, this artifact emits explicit proof certificates and checks them
+with a lightweight replay kernel. The result is an auditable verification
+workflow in which proof evidence can be stored, inspected, compressed, corrupted
+for testing, and independently rechecked.
 
-## Estimated Time and Smoke Tests
+---
 
-While building the Docker image may take some time, as RustyKeY builds on an extension of the Rust compiler, which takes some time to be compiled, the actual examples are run very quickly. On a moderately fast machine, build time takes ~4min and the execution of all examples takes ~2min in total.
+## 1. Overview
 
-As such, the full tests are equivalent to the smoke test (a.k.a., "Kick-the-tires").
+Modern deductive verifiers often combine several responsibilities inside one
+large engine: parsing source programs, generating verification conditions,
+searching for proofs, applying proof rules, simplifying arithmetic, managing
+branching proof states, and checking final proof closure. This monolithic design
+is convenient for automation, but it also means that the final verification
+result depends on a large trusted implementation.
 
-Simply load the Docker image for your platform---we provide images for linux/amd64 and linux/arm64. For linux/amd64, the command is (you may need `sudo`, depending on your docker setup):
-```bash
-docker load < rustyDL-linux-amd64.tar.gz
-```
+This artifact explores a different design.
 
-Alternatively, if your system has no provided image, build the Docker container using
-```bash
-docker build . -t derdrodt/fm26
-```
-**(Note that the name is fixed. If you use another name for the image, you must also change the name in `run_all_tests.sh`!)**
+The verifier is treated as an **untrusted proof producer**. Its output is
+converted into a structured proof certificate. The final accept/reject decision
+is made by a small checker that replays the certificate without invoking the
+original proof engine.
 
-And then execute all tests using (possibly with `sudo` again):
-```bash
-./run_all_tests.sh
-```
+The framework supports:
 
-## Requirements
+- explicit JSON proof certificates;
+- full and compressed certificate formats;
+- independent small-kernel certificate checking;
+- rule-schema and trace-shape replay;
+- side-condition and substitution validation;
+- branch-closure validation;
+- replay digests for certificate integrity;
+- negative tests for corrupted certificates;
+- benchmark generation in CSV and Markdown formats.
 
-For artifact evaluation, we recommend the Docker image. For that you simply need Docker.
+The artifact targets source-level Rust verification, but the design is phrased
+around a general proof-carrying verification workflow: proof producers may be
+large, heuristic, and implementation-heavy, while proof checkers should be small,
+auditable, and conservative.
 
-All files in the .zip file are mandatory, they are copied to the created Docker containers. **Do not remove or rename them**.
+---
 
-## Examples
+## 2. Main Contributions
 
-The `examples` folder contains 10 examples from the paper (in subfolder `paper`). Some of them just describe the problem to be proven valid or the function contract to be verified and proving is done automatically. A few (`example5.proof`, `example6.proof`, `example7-and-8.proof`) are completed (manual) proofs, which are loaded and checked for correctness. And one example (`example4-overflow.proof`) is of an invalid sequent, which is not provable (two open goals remain).
+This artifact implements the following contributions.
 
-Additionally, a binary search implementation mentioned in the paper is found in the examples subfolder `binary-search`, also proven automatically.
+### 2.1 Proof-Carrying Verification Workflow
 
-All examples are run by `run_all_tests.sh`. First, the manual tests are reloaded and checked, then the successful automatic tests are done, and finally the unprovable file is attempted.
-
-The `.proof` files generated by the (successful) automatic tests are copied from the Docker container to your machine into the `proofs` folder.
-
-## Reusability
-
-The RustyKeY CLI is, in principle applicable to any `.key` or `.proof`-file. See its `--help` output for more information. We recapitulate the arguments used in this artifact's examples:
-- `-s`: Print proof statistics once automatic proof is done.
-- `-o [FILE]`: Path where the finished proof is written to.
-- `--no-prove`: Used to disable automatic proving and only load the file. Used here for the already completed proof files.
-- `-m [NUMBER]`: Maximal number of proof steps. Used for one example, which takes over 10,000 steps.
-
-The generated `.proof` files are readable and contain each applied sequent calculus rule and the location where it was applied. For more information, we refer to the [KeY Book](https://www.key-project.org/thebook2/).
-
-Please note that RustyKeY is still, in parts, a prototype: Not all Rust features are supported and error reporting is less-than-ideal.
-
-To create your own KeY files, here are a few explanations of the files (for details, see the [KeY Book](https://www.key-project.org/thebook2/)):
-- `\programSource` contains a path to the Rust files to be loaded/verified. It must be a folder where the `Cargo.toml` file is located
-    - You need to have the correct Rust version for your crate, see the `rust-toolchain.toml` files in the examples.
-    - If you want to specify your programs, use [rml](https://github.com/Drodt/rml).
-- `\programVariables` is for defining program variables for the logic.
-- `\problem` contains a formula or sequent to be proven.
-- `\proofObligation` specifies which contract should be verified.
-- `\proof` contains the proof steps.
-
-## Troubleshooting: MacOS
-
-To avoid issues on MacOS, we recommend that you install docker and the image system-wide. That worked in our tests.
-
-You may also run into the issue that the generated Docker config file is incorrect: In `~/.docker/config.json`, change `"credStore"` to `"credsStore"` if your container does not run.
-
-## Manual Installation
-
-### Requirements
-
-- Java 21
-- Rust, rustup, and Cargo. See the [Rust website](https://rust-lang.org/tools/install/) for instructions
-
-You will also require the [KeY-rustc-wrapper](https://github.com/Drodt/KeY-rustc-wrapper). Steps to install it using cargo are as follows:
-- Clone the repository: `git clone git@github.com:Drodt/KeY-rustc-wrapper.git`
-- Initialize the submodule in the repository: `git submodule update --remote --init`
-- Install using Cargo: `cargo install --path crates/cargo-key`
-
-This will create the `cargo-key` extension to Cargo, allowing RustyKeY to read Rust's inner data structures.
-
-Then, you can execute RustyKeY from the Jar file, using:
-```bash
-java -jar rusty-key-0.1.0-exe.jar --help
-```
-which will print the arguments and options expected by the CLI.
-
-## RustyDL-Cert: Certificate-Carrying Verification
-
-RustyDL-Cert is a research extension for certificate-carrying source-level
-verification of Rust programs in RustyDL/RustyKeY.
-
-This extension does not aim to outperform existing Rust verifiers in automation.
-Instead, it reduces the trusted base of source-level Rust verification by making
-RustyDL proofs independently checkable.
-
-RustyDL-Cert is not a new Rust verifier and does not aim to improve proof
-automation. Instead, it turns source-level RustyDL proofs into independently
-checkable proof certificates. The key contribution is a replayable certificate
-language, a small trusted checker, and a compression-preserving replay mechanism
-that reduces the trusted computing base of Rust source-level deductive
-verification.
-
-### Motivation and pipeline
-
-The original artifact uses RustyKeY proof search and KeY taclet/rule execution to
-prove RustyDL sequents. RustyDL-Cert treats that large engine as an untrusted
-certificate producer:
+The artifact introduces a proof-carrying workflow for source-level verification:
 
 ```text
-Rust program + RustyDL specification
+Source program + specification
         ↓
-RustyDL / RustyKeY proof search or replay
+verification engine as proof producer
         ↓
-full proof certificate JSON
+structured proof certificate
         ↓
 certificate compression
         ↓
 small independent checker
         ↓
+accepted / rejected + replay statistics
+```
+
+The important design choice is that the verification engine is not trusted for
+the final result. It is only trusted to produce candidate proof evidence.
+
+### 2.2 Small-Kernel Certificate Checking
+
+The trusted component is a small checker that validates certificate structure,
+known rule schemas, replay state, branch metadata, closure evidence, and replay
+digests. It does not call the original proof engine during checking.
+
+This reduces the trusted boundary from a large verification stack to a compact
+certificate checker and its explicit rule-schema interface.
+
+### 2.3 Replayable Proof Certificates
+
+The full certificate format records:
+
+- certificate metadata;
+- initial and final proof states;
+- proof-step identifiers;
+- rule names;
+- parent-child proof structure;
+- branch identifiers;
+- side-condition attributes;
+- substitutions;
+- closure evidence;
+- textual or opaque sequent snapshots;
+- replay digests.
+
+The certificate is designed to be inspectable and replayable, not merely a log
+file.
+
+### 2.4 Compression-Preserving Replay
+
+The artifact supports compressed certificates. Compression is not treated as a
+pure storage optimization: compressed macro steps are checked against the replay
+discipline, and corrupted macro certificates are rejected.
+
+This allows large proof traces to be reduced while preserving independent
+checkability.
+
+### 2.5 Negative Certificate Validation
+
+The artifact includes negative tests that deliberately corrupt certificates.
+These tests modify rule identifiers, substitutions, side conditions, initial
+sequents, branch closure evidence, and compressed macro steps.
+
+The expected behavior is rejection. These tests are included to demonstrate that
+the checker is not an accept-all validator.
+
+---
+
+## 3. Architecture
+
+The implementation is organized around four stages.
+
+### Stage 1: Proof Production
+
+A source-level verification engine is used to produce a proof trace. In this
+artifact, existing readable proof traces are used as the initial proof evidence.
+
+The proof producer may be large and complex. It may include symbolic execution,
+proof search, rule application, simplification, and source-language front-end
+processing. None of these components are part of the small trusted checker.
+
+### Stage 2: Certificate Extraction
+
+The extractor converts proof traces into full JSON certificates. Each proof step
+is represented explicitly and linked to its parent, branch, rule family, and
+available side-condition information.
+
+When textual sequents are available in proof comments, they are recorded. When
+the proof trace omits textual sequents, stable opaque/current sequent tokens are
+used and the certificate is classified under conservative trace-shape replay.
+
+### Stage 3: Certificate Compression
+
+Full certificates can be compressed into macro certificates. Compression groups
+replayable proof fragments while preserving enough structure for independent
+checking.
+
+The compressed representation records macro steps, replay digests, and the
+metadata required to validate that compression did not invent proof evidence.
+
+### Stage 4: Independent Checking
+
+The checker reads either a full or compressed certificate and returns:
+
+```text
 accepted / rejected + statistics
 ```
 
-Because the distributed RustyKeY implementation is provided as a JAR, the current
-recorder is intentionally non-invasive: it parses the readable `.proof` files
-emitted by RustyKeY and records each `(rule ...) // sequent` application as a
-certificate step.
+Unsupported rules are rejected explicitly. The checker does not silently accept
+unknown proof steps.
 
-### Trusted computing base
+---
 
-The checker does **not** call the RustyKeY proof engine. The trusted code is the
-small Python checker under `checker/`, the certificate JSON reader, the textual
-rule-schema whitelist, and the simple side-condition/substitution checks. RustyKeY
-proof search, taclet execution, simplification, and Rust HIR conversion are treated
-as untrusted certificate producers.
+## 4. Trusted Computing Base
 
-Current replay precision:
+The trusted computing base consists of:
 
-* **precise replay** of rule identifiers, parent/child step identifiers, branch
-  metadata, side-condition attributes, substitutions present in the proof trace,
-  branch closure flags, current-goal chaining, and replay digests;
-* **schema-level textual replay** for assignment/update, borrowing/reference,
-  mutable-write, array, tuple, enum, and loop-rule families when textual sequents
-  are present in `.proof` comments;
-* **conservative trace-shape replay** for RustyKeY-generated proof traces that omit
-  textual sequents. These use stable opaque/current sequent tokens while checking
-  known rule families, branch structure, closure evidence, step ids, and digests;
-* **conservative arithmetic replay** for `polySimp_*`, `polyDiv_*`, `inEqSimp_*`,
-  and literal simplification rules. The built-in arithmetic backend is not a full
-  SMT solver; richer SMT-backed checking is future work;
-* unsupported rules are rejected with `UnsupportedRule`, not silently accepted.
+- the small certificate checker;
+- the JSON certificate reader;
+- the textual rule-schema whitelist;
+- conservative side-condition checks;
+- conservative substitution checks;
+- digest validation;
+- certificate-structure validation.
 
-The trusted checker is intentionally small, so benchmark `trusted_checker_loc` is
-reported with this granularity: the 200-line checker is not a full KeY engine. It
-checks certificate integrity, known rule-schema membership, replay state, closure
-conditions, and compressed macro validity, while generated rules without textual
-sequents are explicitly classified as conservative trace-shape validation.
+The trusted computing base does **not** include:
 
-### Commands
+- the original proof-search engine;
+- proof automation heuristics;
+- large taclet/rule execution machinery;
+- arithmetic simplification engines from the proof producer;
+- source-language compiler internals used by the proof producer;
+- proof-generation scripts;
+- certificate compression as a trusted step.
 
-Generate and check a full certificate from an existing manual proof:
+The checker is deliberately conservative. If the certificate contains an
+unsupported rule, malformed branch structure, invalid closure evidence, corrupted
+substitution, inconsistent side condition, or broken macro step, the checker
+rejects it.
 
-```bash
-./rustydl-cert from-proof examples/paper/example5.proof --out out/example5.full.json
-./rustydl-cert check out/example5.full.json
+---
+
+## 5. Replay Modes
+
+The artifact supports several replay modes.
+
+### 5.1 Precise Replay
+
+Precise replay validates:
+
+- rule identifiers;
+- step identifiers;
+- parent-child dependencies;
+- branch metadata;
+- side-condition attributes;
+- substitutions present in the proof trace;
+- branch closure flags;
+- current-goal chaining;
+- replay digests.
+
+This is the strongest replay mode used when sufficient proof-trace information is
+available.
+
+### 5.2 Schema-Level Textual Replay
+
+When textual sequents are available, the checker performs schema-level replay for
+supported proof-rule families, including:
+
+- assignment and update rules;
+- borrowing and reference rules;
+- mutable-write rules;
+- array rules;
+- tuple rules;
+- enum rules;
+- loop-rule families;
+- deterministic symbolic simplification;
+- branch-closing rules.
+
+The checker validates the rule family and the certificate-local evidence rather
+than trusting the original proof engine.
+
+### 5.3 Conservative Trace-Shape Replay
+
+Some proof traces omit full textual sequents. In such cases, the checker uses
+stable opaque/current sequent tokens and validates:
+
+- known rule families;
+- proof-tree shape;
+- branch structure;
+- step identifiers;
+- closure evidence;
+- replay digests.
+
+This mode is conservative and explicitly reported as trace-shape validation. It
+does not pretend to reconstruct information that the proof trace did not expose.
+
+### 5.4 Conservative Arithmetic Replay
+
+Arithmetic simplification rules are handled conservatively. The checker supports
+rule families such as:
+
+- `polySimp_*`;
+- `polyDiv_*`;
+- `inEqSimp_*`;
+- literal simplification rules.
+
+The artifact does not implement a full SMT solver. Richer SMT-backed arithmetic
+certificate checking is future work.
+
+---
+
+## 6. Supported Proof Features
+
+The current artifact supports the proof-rule families needed by the included
+source-level verification examples. These include:
+
+- assignment/update rules;
+- variable substitution;
+- shared borrowing;
+- mutable borrowing;
+- reference dereference;
+- reference write;
+- array-rule names when emitted by the proof producer;
+- tuple-rule names when emitted by the proof producer;
+- enum-rule names when emitted by the proof producer;
+- loop-invariant rule names;
+- deterministic symbolic simplification;
+- arithmetic normalization using supported simplification prefixes;
+- branch closure by explicit assumption reference;
+- branch closure by syntactic closure marker.
+
+Unsupported rules are rejected with an explicit `UnsupportedRule` result.
+
+---
+
+## 7. Repository Layout
+
+A typical checkout contains the following components.
+
+```text
+.
+├── checker/                       # small independent certificate checker
+├── docs/
+│   ├── certificate_format.md       # full and compressed JSON certificate format
+│   ├── theory.md                   # replay and compression soundness argument
+│   └── artifact_usage.md           # detailed artifact commands
+├── examples/                       # source-level verification examples
+├── proofs/                         # generated or existing proof traces
+├── results/
+│   ├── cert_benchmark.csv          # benchmark results
+│   ├── cert_benchmark.md           # benchmark table
+│   ├── cert_negative_tests.csv     # negative-test results
+│   └── cert_negative_tests.md      # negative-test table
+├── tests/                          # positive, negative, and compression tests
+├── rustydl-cert                    # command-line entry point
+├── Makefile                        # convenience targets
+└── IMPLEMENTATION_SUMMARY.md       # implementation and limitation summary
 ```
 
-Run RustyKeY on a `.key` file and emit a certificate:
+Some directories may be generated after running the artifact commands.
 
-```bash
-./rustydl-cert verify examples/binary-search/binary-search.key --emit-cert out/binary.full.json
-```
+---
 
-Compress and check a certificate:
+## 8. Quick Start
 
-```bash
-./rustydl-cert compress out/example5.full.json --out out/example5.compressed.json
-./rustydl-cert check-compressed out/example5.compressed.json
-```
+### 8.1 Requirements
 
-Convenience Make targets:
+The artifact expects a Unix-like shell environment and Python 3.
 
-```bash
-make verify-cert EXAMPLE=example5
-make verify-cert EXAMPLE=binary_search
-make cert-tests
-make cert-benchmarks
-```
+If proof production is run from source-level verification inputs, the underlying
+verification backend may additionally require Java, Rust, Cargo, and related
+toolchain components. For checking existing certificates, the small checker only
+needs the certificate files and Python environment.
 
-Benchmark results are generated in both CSV and Markdown form:
-
-* `results/cert_benchmark.csv`
-* `results/cert_benchmark.md`
-
-Negative-test results are also generated by `make cert-benchmarks`:
-
-* `results/cert_negative_tests.csv`
-* `results/cert_negative_tests.md`
-
-These corrupt rule identifiers, substitutions, side conditions, initial sequents,
-branch closure evidence, and compressed macro steps; each case is expected to be
-rejected by the independent checker.
-
-### Supported RustyDL replay subset
-
-The checker currently supports source-level and dynamic-logic proof replay for the
-rule families present in the artifact examples, including assignment/update rules,
-variable substitution, shared and mutable borrowing rules, reference dereference
-and write rules, array/tuple/enum rule names when emitted by RustyKeY,
-loop-invariant rule names, deterministic symbolic simplification, arithmetic
-normalization rules with `polySimp_`/`inEqSimp_` prefixes, and branch closing by
-explicit assumption reference or syntactic closure marker.
-
-### Tests and negative examples
-
-RustyDL-Cert includes positive replay tests, certificate tampering tests, and
-compression tests:
+### 8.2 Run Unit Tests
 
 ```bash
 python3 -m unittest discover -s tests -p '*tests.py'
 ```
 
-Negative tests corrupt rule identifiers, substitutions, side conditions, branch
-closure information, initial sequents, and compressed macro steps to show that the
-checker is not an accept-all validator.
+This runs positive replay tests, negative certificate tests, and compression
+tests.
 
-### Documentation
+### 8.3 Generate a Full Certificate from an Existing Proof
 
-* `docs/certificate_format.md` specifies the full and compressed JSON formats.
-* `docs/theory.md` gives the FM-style replay and compression soundness argument.
-* `docs/artifact_usage.md` provides artifact commands and expected outputs.
-* `IMPLEMENTATION_SUMMARY.md` summarizes modules, supported rules, limitations,
-  tests, benchmarks, and trusted boundaries.
+```bash
+./rustydl-cert from-proof examples/paper/example5.proof --out out/example5.full.json
+```
+
+### 8.4 Check a Full Certificate
+
+```bash
+./rustydl-cert check out/example5.full.json
+```
+
+Expected behavior:
+
+```text
+accepted + replay statistics
+```
+
+or, for corrupted/unsupported inputs:
+
+```text
+rejected + diagnostic reason
+```
+
+### 8.5 Run Verification and Emit a Certificate
+
+```bash
+./rustydl-cert verify examples/binary-search/binary-search.key --emit-cert out/binary.full.json
+```
+
+This command invokes proof production and emits a certificate for independent
+checking.
+
+### 8.6 Compress a Certificate
+
+```bash
+./rustydl-cert compress out/example5.full.json --out out/example5.compressed.json
+```
+
+### 8.7 Check a Compressed Certificate
+
+```bash
+./rustydl-cert check-compressed out/example5.compressed.json
+```
+
+---
+
+## 9. Make Targets
+
+The artifact provides convenience targets.
+
+### 9.1 Verify One Example
+
+```bash
+make verify-cert EXAMPLE=example5
+```
+
+```bash
+make verify-cert EXAMPLE=binary_search
+```
+
+### 9.2 Run Certificate Tests
+
+```bash
+make cert-tests
+```
+
+### 9.3 Run Benchmarks
+
+```bash
+make cert-benchmarks
+```
+
+This generates positive benchmark results and negative-test results.
+
+---
+
+## 10. Benchmark Outputs
+
+Benchmark results are emitted in both CSV and Markdown formats.
+
+```text
+results/cert_benchmark.csv
+results/cert_benchmark.md
+```
+
+The benchmark table reports certificate-checking statistics such as accepted
+proofs, replay mode, trusted checker size, rule coverage, compressed certificate
+behavior, and replay outcome.
+
+The artifact also generates negative-test outputs:
+
+```text
+results/cert_negative_tests.csv
+results/cert_negative_tests.md
+```
+
+Negative tests are expected to be rejected by the checker.
+
+---
+
+## 11. Negative Tests
+
+Negative tests intentionally corrupt certificate components, including:
+
+- rule identifiers;
+- substitutions;
+- side conditions;
+- initial sequents;
+- branch closure evidence;
+- compressed macro steps.
+
+The purpose is to validate that the checker enforces certificate integrity rather
+than accepting arbitrary traces.
+
+A successful negative-test run means that corrupted certificates are rejected
+with explicit diagnostic categories.
+
+---
+
+## 12. Certificate Format
+
+The full certificate format is JSON-based. It records proof-level metadata and a
+sequence of proof steps.
+
+A proof step may contain:
+
+```json
+{
+  "id": "step-42",
+  "rule": "assignment_update",
+  "parent": "step-41",
+  "branch": "main",
+  "side_conditions": {},
+  "substitutions": {},
+  "before": "...",
+  "after": "...",
+  "digest": "..."
+}
+```
+
+The compressed certificate format replaces selected proof fragments with macro
+steps while preserving replay metadata and digest evidence.
+
+The complete specification is provided in:
+
+```text
+docs/certificate_format.md
+```
+
+---
+
+## 13. Soundness Argument
+
+The artifact includes an FM-style soundness argument in:
+
+```text
+docs/theory.md
+```
+
+At a high level, the intended guarantee is:
+
+> If the independent checker accepts a certificate, then the certificate
+> corresponds to a replayable derivation under the supported rule schemas and
+> replay discipline.
+
+For compressed certificates, the intended guarantee is:
+
+> If the checker accepts a compressed certificate, then the macro replay is valid
+> with respect to the corresponding full replay structure.
+
+The current implementation is deliberately conservative. Unsupported or
+underspecified proof evidence is rejected rather than accepted silently.
+
+---
+
+## 14. Relationship to Existing Verification Engines
+
+This artifact is not a replacement for a deductive verifier. It does not attempt
+to improve proof search, automate more programs, or outperform existing
+verification tools.
+
+Instead, it adds a proof-carrying layer around source-level verification:
+
+| Aspect | Conventional verifier-centered workflow | This artifact |
+|---|---|---|
+| Proof search | Performed by large verifier | Performed by large verifier |
+| Final trust decision | Large verifier is trusted | Small checker is trusted |
+| Proof evidence | Internal trace or proof file | Explicit JSON certificate |
+| Rechecking | Requires verifier-specific machinery | Uses independent checker |
+| Compression | Not central | Checked macro certificates |
+| Negative testing | Optional | Built into artifact |
+| Failure mode | Tool-specific failure | Explicit reject reason |
+
+The verification backend is therefore used as a proof producer, not as the final
+trusted authority.
+
+---
+
+## 15. Limitations
+
+The artifact is intentionally conservative and has several limitations.
+
+1. **Replay subset.**  
+   The checker supports the rule families needed by the included examples. It is
+   not a full implementation of every rule from the proof producer.
+
+2. **Arithmetic checking.**  
+   Arithmetic replay is conservative and rule-family based. The checker does not
+   yet include a full SMT-backed arithmetic certificate checker.
+
+3. **Opaque sequents.**  
+   Some proof traces omit textual sequents. In these cases, the checker uses
+   conservative trace-shape validation and reports this replay mode explicitly.
+
+4. **Source-language coverage.**  
+   The current examples cover a representative subset of source-level Rust
+   verification patterns, but not the full Rust language.
+
+5. **Certificate extraction.**  
+   The current extractor is intentionally non-invasive. It parses readable proof
+   traces rather than modifying the internals of the proof producer.
+
+6. **Checker implementation.**  
+   The checker is small by design. Its purpose is independent replay validation,
+   not proof search or full reimplementation of a verification engine.
+
+These limitations are design choices for an artifact focused on reducing trusted
+proof-checking infrastructure.
+
+---
+
+## 16. Reproducibility Checklist
+
+To reproduce the artifact results:
+
+1. Install the required runtime environment.
+2. Run the unit tests:
+
+   ```bash
+   python3 -m unittest discover -s tests -p '*tests.py'
+   ```
+
+3. Generate a full certificate:
+
+   ```bash
+   ./rustydl-cert from-proof examples/paper/example5.proof --out out/example5.full.json
+   ```
+
+4. Check the full certificate:
+
+   ```bash
+   ./rustydl-cert check out/example5.full.json
+   ```
+
+5. Compress the certificate:
+
+   ```bash
+   ./rustydl-cert compress out/example5.full.json --out out/example5.compressed.json
+   ```
+
+6. Check the compressed certificate:
+
+   ```bash
+   ./rustydl-cert check-compressed out/example5.compressed.json
+   ```
+
+7. Run benchmark generation:
+
+   ```bash
+   make cert-benchmarks
+   ```
+
+8. Inspect:
+
+   ```text
+   results/cert_benchmark.md
+   results/cert_negative_tests.md
+   ```
+
+---
+
+## 17. Expected Artifact Claims
+
+A successful artifact run should demonstrate the following claims.
+
+### Claim 1: Existing proof evidence can be converted into explicit certificates.
+
+The artifact generates full JSON certificates from proof traces and records the
+rule-level replay structure.
+
+### Claim 2: Certificates can be checked independently.
+
+The checker validates full certificates without invoking the original proof
+engine.
+
+### Claim 3: Certificate compression preserves replay checkability.
+
+Compressed certificates are accepted only when macro replay is valid.
+
+### Claim 4: Corrupted certificates are rejected.
+
+Negative tests show that the checker rejects malformed rules, substitutions,
+side conditions, branch evidence, initial sequents, and macro steps.
+
+### Claim 5: The trusted boundary is reduced.
+
+The final trust decision depends on a small checker rather than on the full proof
+production engine.
+
+---
+
+## 18. Citation
+
+If this artifact is used in academic work, cite the accompanying paper:
+
+```bibtex
+@article{proofcarrying_source_level_verification,
+  title   = {Proof-Carrying Source-Level Verification with Small-Kernel Certificate Checking},
+  author  = {Anonymous},
+  journal = {Software: Practice and Experience},
+  year    = {2026}
+}
+```
+
+Please replace the placeholder metadata with the final bibliographic information
+once available.
+
+---
+
+## 19. License and Acknowledgments
+
+This artifact builds on existing source-level verification infrastructure and
+proof traces. The certificate layer, checker, compression logic, tests, and
+documentation implement a proof-carrying verification workflow on top of that
+infrastructure.
+
+Please consult the repository license files and third-party dependency notices
+before redistribution.
