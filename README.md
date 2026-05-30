@@ -659,7 +659,7 @@ If this artifact is used in academic work, cite the accompanying paper:
 ```bibtex
 @article{proofcarrying_source_level_verification,
   title   = {Proof-Carrying Source-Level Verification with Small-Kernel Certificate Checking},
-  author  = {Anonymous},
+  author  = {Zichen Song, Weijia Li},
   journal = {Software: Practice and Experience},
   year    = {2026}
 }
